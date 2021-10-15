@@ -105,3 +105,6 @@ for track_count, track in enumerate(playlist_results):
 
     except Exception as e:
         logger.exception("Encountered an issue: {0}".format(e))
+
+    finally:
+        logger.info("These are the files which had issues: {0}".format(json.dumps(FAIL_DICT, indent=4, sort_keys=True)))
