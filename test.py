@@ -1,6 +1,5 @@
 import json
 import logging
-from logging.handlers import TimedRotatingFileHandler
 import os
 import re
 import spotipy
@@ -8,12 +7,14 @@ from spotipy.oauth2 import SpotifyClientCredentials
 import sys
 import urllib.request
 
+# Adding the Repo directory to the PATH so that we can access the youtube-dl package
 sys.path
 sys.path.append('E:\Repos\Spotify_DL')
 
+# Creating some variables and some lists / dicts for results
+DEST_PATH = '/Downloaded_Music'
 FAIL_DICT = {}
-
-PLAYLIST_LENGTH = 0
+PASS_LIST = []
 
 # Change working directory so logs can hit the logging folder
 os.chdir('../')
@@ -22,6 +23,7 @@ os.chdir('../')
 if not os.path.isdir('Logging/spotify_downloader/'):
     os.mkdir('Logging/spotify_downloader/')
 
+# Creating the logger
 logger = logging.getLogger('[Python Spotify Downloader]')
 logger.setLevel(logging.DEBUG)
 logname = 'Logging/spotify_downloader/spotify_downloader.log'
@@ -32,9 +34,50 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-def get_playlist_song_artist(playlist_raw):
+"""
+get_playlist
+
+playlist_link   STRING  Spotify URL of the playlist that needs to be parsed
+
+This function takes in a playlist URL, logs into Spotify using the Spotipy Credentials Environment Variables
+and parses the playlist for all of it's tracks.
+
+It then calls the get_song_artist function to process all the track data into just the song title and artist name   
+"""
+def get_playlist(playlist_link):
+    playlist_id = playlist_link.split('/')[-1]
+    spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+    results = spotify.playlist_items(playlist_id, fields='tracks,next,name')
+    tracks = results['tracks']
+    track_list = tracks['items']
+
+    while True:
+        if tracks['next']:
+            # print(len(track_list))
+            tracks = spotify.next(tracks)
+            track_list.extend(tracks['items'])
+        else:
+            break
+
+    get_playlist_results = get_song_artist(track_list)
+
+    return get_playlist_results
+
+
+"""
+get_playlist
+
+playlist_link   STRING  Spotify URL of the playlist that needs to be parsed
+
+This function takes in a playlist URL, logs into Spotify using the Spotipy Credentials Environment Variables
+and parses the playlist for all of it's tracks.
+
+It then calls the get_song_artist function to process all the track data into just the song title and artist name   
+"""
+
+
+def get_song_artist(playlist_get):
     get_playlist_list = []
-    playlist_get = playlist_raw['tracks']['items']
 
     for song in playlist_get:
         detail_list = []
@@ -73,14 +116,11 @@ def get_youtube_url(search_list):
 
 
 playlist_url = 'https://open.spotify.com/playlist/51gY6jFMaqpsPFFgVbGcvX?si=19584ccb85d24650'
-playlist_id = playlist_url.split('/')[-1]
-spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
 
-results = spotify.playlist_items(playlist_id)
-
-playlist_results = get_playlist_song_artist(results)
+playlist_results = get_playlist(playlist_url)
 
 print(json.dumps(playlist_results, indent=4, sort_keys=True))
+logger.info(json.dumps(playlist_results, indent=4, sort_keys=True))
 
 for track_count, track in enumerate(playlist_results):
     try:
@@ -88,16 +128,17 @@ for track_count, track in enumerate(playlist_results):
         video_ids_get, search_params_get = get_youtube_url(track)
         for vid_trial_count, video in enumerate(video_ids_get):
             # video_suffix = get_youtube_url(track)
+
             url = "https://www.youtube.com/watch?v=" + video
 
-            dest_path = '/Downloaded_Music'
             yt_dl_cmd = 'youtube-dl -v -f bestaudio {0} ' \
                         '--external-downloader ffmpeg --external-downloader-args "-ss starttime -to endtime" -o ' \
-                        '"{1}/%(title)s.%(ext)s"'.format(url, dest_path)
+                        '"{1}/%(title)s.%(ext)s"'.format(url, DEST_PATH)
             try:
                 print("Downloading song {0} of {1}".format(track_count+1, len(playlist_results)))
                 logger.info("Downloading song {0} of {1}".format(track_count+1, len(playlist_results)))
                 os.system(yt_dl_cmd)
+                PASS_LIST.append(search_params_get[vid_trial_count])
                 break
             except Exception as e:
                 logger.exception("Encountered an issue: {0}".format(e))
@@ -108,3 +149,5 @@ for track_count, track in enumerate(playlist_results):
 
     finally:
         logger.info("These are the files which had issues: {0}".format(json.dumps(FAIL_DICT, indent=4, sort_keys=True)))
+        logger.info("These are the successful files: {0}".format(json.dumps(PASS_LIST, indent=4, sort_keys=True)))
+
